@@ -1289,6 +1289,8 @@ class FA:
     
     @staticmethod
     def _parseModifier(expr, pc, accept, compact):
+        if(pc.codepoint == -1):
+            return expr
         position = pc.position
         match chr(pc.codepoint):
             case "*":
@@ -1712,8 +1714,7 @@ class FA:
                 case ")":
                     return result
                 case "(":
-                    if -1 != pc.advance():
-                        return result
+                    pc.advance()
                     if pc.codepoint == ord("?"):
                         pc.advance()
                         pc.expecting([':'])
@@ -1722,7 +1723,12 @@ class FA:
                     pc.expecting([])
                     nextExpr = FA._parse(pc, accept, compact)
                     pc.expecting([')'])
-                    pc.advance()
+                    if -1 == pc.advance():
+                        if result is None:
+                            return nextExpr
+                        else:
+                            return FA.concat([result, nextExpr], accept, compact)
+                        
                     nextExpr = FA._parseModifier(nextExpr, pc, accept, compact)
                     if result is None:
                         result = nextExpr
@@ -1764,7 +1770,9 @@ class FA:
         if result is None:
             result = FA(accept)
         return result
-    
+
+#fa = FA.parse("(\\/api\\/spiffs\\/(.*))|(\\/api\\/sdcard\\/(.*))")
+#print(fa.toArray())
 # compact = False
 # firstPart = FA.charset([FARange(ord("A"),ord("Z")),FARange(ord("a"),ord("z")),FARange(ord("_"),ord("_"))],0,compact)
 # nextPart = FA.charset([FARange(ord("A"),ord("Z")),FARange(ord("a"),ord("z")),FARange(ord("_"),ord("_")),FARange(ord("0"),ord("9"))],0,compact)

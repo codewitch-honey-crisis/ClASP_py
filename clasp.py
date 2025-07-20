@@ -429,7 +429,7 @@ def run():
             if inDirectives == True:
                 inDirectives = False
                 if isStatic == True:
-                    cmp = processCompression(input)
+                    cmp = processCompression(content)
                     headerTmp = getHeaders(autoHeaders,isStatic,len(cmp[1]),cmp[0], hasStatus,statusCode,statusText,headers,isChunked)
                     for h in headerTmp.split("\r\n")[:-1]:
                         emit(f"// {h}{eol}")
@@ -498,7 +498,8 @@ def run():
                 emitHeaders(autoHeaders,isStatic,staticLength,None, hasStatus,statusCode,statusText,headers,isChunked)
             inDirectives = False
             emitExpression(content)
-    emitResponseBlock(None)
+    if isStatic == False:
+        emitResponseBlock(None)
     if not (output is None):
         output.close()
 

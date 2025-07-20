@@ -645,7 +645,7 @@ def run():
                 isLiteral = mapline.endswith('\"')
                 expr = mapline[splitIndex + 1:]
 
-                mapList.append((expr[1:-2], isLiteral, mappath))
+                mapList.append((expr[1:-1], isLiteral, mappath))
                 mapline = urlmap.readline()
                 if not mapline:
                     break
