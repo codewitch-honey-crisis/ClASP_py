@@ -498,7 +498,7 @@ def run():
                 emitHeaders(autoHeaders,isStatic,staticLength,None, hasStatus,statusCode,statusText,headers,isChunked)
             inDirectives = False
             emitExpression(content)
-
+    emitResponseBlock(None)
     if not (output is None):
         output.close()
 

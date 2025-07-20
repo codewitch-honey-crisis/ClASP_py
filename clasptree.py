@@ -549,14 +549,14 @@ def run():
 
     prolStr = ""
     if not cmdargs.prologue is None:
-        stm = open(cmdargs.prologue,"r")
-        prolStr = stm.read()
+        stm = open(cmdargs.prologue,"rb")
+        prolStr = stm.read().decode("utf-8-sig")
         stm.close()
     
     epilStr = ""
     if not cmdargs.epilogue is None:
-        stm = open(cmdargs.epilogue,"r")
-        epilStr = stm.read()
+        stm = open(cmdargs.epilogue,"rb")
+        epilStr = stm.read().decode("utf-8-sig")
         stm.close()
                     
     allfiles = [os.path.join(dp, f) for dp, dn, filenames in os.walk(cmdargs.input) for f in filenames]
@@ -580,11 +580,11 @@ def run():
     includes = ""
     includes += f"#include <stdint.h>{eol}#include <stddef.h>{eol}"
 
-    oname = cmdargs.output
+    oname = os.path.splitext(os.path.basename(cmdargs.output))[0]
     fname = os.path.split(os.path.abspath(cmdargs.input))[1]
     if not (cmdargs.output is None):
         output = open(cmdargs.output,"w")
-        oname = os.path.splitext(cmdargs.output)[0]
+        oname = os.path.splitext(os.path.basename(cmdargs.output))[0]
         fname = oname
     
     guardName = makeSafeName(fname.upper() + "_H",usedNames)
@@ -606,12 +606,15 @@ def run():
             mapline = urlmap.readline()
             while True:
                 maplineno += 1
-                idx = mapline.rfind('#')
+                idx = mapline.find('#')
                 if idx > -1:
                     mapline = mapline[0:idx]
                 
                 mapline = mapline.rstrip()
                 if len(mapline)==0: 
+                    mapline = urlmap.readline()
+                    if not mapline:
+                        break
                     continue
                 # find the split
                 mappath = ""
@@ -637,14 +640,16 @@ def run():
                     if splitIndex == -1:
                         raise Exception(f"No expression entry at line {maplineno}")
                     
-                    mappath+= line[0:splitIndex]
+                    mappath+= mapline[0:splitIndex]
                 
-                isLiteral = line.endsWith('\"')
-                expr = line[splitIndex + 1:]
+                isLiteral = mapline.endswith('\"')
+                expr = mapline[splitIndex + 1:]
 
-                mapList.append((expr[1,-2], isLiteral, mappath))
+                mapList.append((expr[1:-2], isLiteral, mappath))
                 mapline = urlmap.readline()
-                urlmap.close()
+                if not mapline:
+                    break
+            urlmap.close()
         for f in files.items():
             if os.path.basename(f[1]).startswith("."):
                 continue
@@ -666,7 +671,7 @@ def run():
                 if not (hext is None) and cmdargs.handlers == "extended":
                     handlersList.append((hext, pathUrlEncode(hext), sn))
                 
-            handlersList.append(("/" + mname, "/" + pathUrlEncode(mname), f"content_{f[0]}"))
+            handlersList.append(("/" + mname, "/" + pathUrlEncode(mname), f"{cmdargs.prefix}content_{f[0]}"))
         
         handlersList.sort(key=lambda x: x[0])
 
@@ -719,7 +724,8 @@ def run():
                 if mapList[i][1]==False:
                     emit("\"\", \"\", ")
                 else:
-                    emit(f"{toSZLiteral(mapList[i][0])}, {toSZLiteral(mapList[i][2].replace(" ","%20"))}, ")
+
+                    emit(toSZLiteral(mapList[i][0])+", "+toSZLiteral(mapList[i][2].replace(" ","%20"))+", ")
                 mname = mapList[i][2]
                 sn = makeSafeName(mname)
                 emit(f"{cmdargs.prefix}content_{sn}")
