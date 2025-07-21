@@ -1,7 +1,11 @@
 # Visual FA Python port - work in progress
 # copyright (c) 2025 by honey the codewitch
 # MIT license
-import struct
+from __future__ import annotations
+import math
+import os
+from subprocess import Popen, PIPE, STDOUT
+from collections.abc import Iterator, Callable
 class _ParseContext:
     def __init__(self, input, tabWidth = 4, position = 0, line = 1, column = 0):
         self.codepoint = -2
@@ -271,7 +275,7 @@ class FACharacterClasses:
     __known = None
 
     @staticmethod
-    def known():
+    def known() -> dict[str, list[int]]:
         if FACharacterClasses.__known == None:
             result = dict()
             result["IsLetter"] = FACharacterClasses.isLetter
@@ -343,28 +347,40 @@ class _FKeyPair:
         self.key = key
         self.value = value
 
+class FADotGraphOptions:
+    def __init__(self):
+        self.dpi: int = 300
+        self.debugString: str | None = None
+        self.blockEnds: list[FA] | None = None
+        self.debugSourceNfa: FA | None = None
+        self.debugShowNfa: bool = False
+        self.hideAcceptSymbolIds: bool = False
+        self.acceptSymbolNames: list[str] | None = None
+        self.vertical: bool = False
+        self.statePrefix: str = "q"
+
 class FAProgress:
     def __init__(self, callback = None):
-        self.value = 0
+        self.value: int = 0
         self._callback = callback
     
-    def report(self, value):
+    def report(self, value: int) -> None:
         self.value = value
         if self._callback != None:
             self._callback(value)
         
 class FARange:
-    def __init__(self, min = -1, max = -1):
+    def __init__(self, min : int = -1, max : int = -1):
         self.min = min
         self.max = max
     def __lt__(self,rhs):
         if self.max == rhs.max:
             return self.min < rhs.min
         return self.max < rhs.max
-    def intersects(self, rhs):
+    def intersects(self, rhs: FARange):
         return (rhs.min >= self.min and rhs.min <= self.max) or (rhs.max >= self.min and rhs.max <= self.max)
     @staticmethod    
-    def toUnpacked(packedRanges):
+    def toUnpacked(packedRanges : list[int]) -> list[FARange]:
         result = []
         length = len(packedRanges)/2
         i = 0
@@ -375,7 +391,7 @@ class FARange:
             i += 1
         return result
     @staticmethod
-    def toPacked(pairs):
+    def toPacked(pairs : Iterator[FARange]) -> list[int]:
         result = []
         for pair in pairs:
             result.append(pair.min)
@@ -383,12 +399,12 @@ class FARange:
         return result
     
 class FATransition:
-    def __init__(self, to, min = -1, max = -1):
-        self.to = to
-        self.min = min
-        self.max = max
+    def __init__(self, to: FA, min : int = -1, max : int = -1):
+        self.to: FA = to
+        self.min: int = min
+        self.max: int = max
 
-    def isEpsilon(self):
+    def isEpsilon(self) -> bool:
         return self.min == -1 or self.max == -1
     
     def __lt__(self,rhs):
@@ -397,40 +413,40 @@ class FATransition:
         return self.max < rhs.max
     
 class FA:
-    def __init__(self, acceptSymbol = -1):
-        self.acceptSymbol = acceptSymbol
-        self.transitions = []
-        self.__minimizationTag = -1
-        self.__isDeterministic = True
-        self.__isCompact = True
-        self.id = -1
-    
+    def __init__(self, acceptSymbol : int = -1):
+        self.acceptSymbol: int = acceptSymbol
+        self.transitions: list[FATransition] = []
+        self.__minimizationTag: int = -1
+        self.__isDeterministic: bool = True
+        self.__isCompact: bool = True
+        self.id: int = -1
+        self.__fromStates: list[FA] = []
     def __str__(self):
         if self.id == -1: 
-            pass
+            return "FA"
         return f"q{self.id}"
     
-    def isCompact(self):
+    def isCompact(self) -> bool:
         return self.__isCompact
     
-    def isDeterministic(self):
+    def isDeterministic(self) -> bool:
         return self.__isDeterministic
     
-    def isAccepting(self):
+    def isAccepting(self) -> bool:
         return self.acceptSymbol != -1
     
-    def ifFinal(self):
+    def isFinal(self) -> bool:
         return len(self.transitions) == 0
     
-    def isNeutral(self): 
+    def isNeutral(self) -> bool: 
         return self.acceptSymbol == -1 and len(self.transitions) == 1 and self.transitions[0].isEpsilon()
     
-    def isTrap(self):
+    def isTrap(self) -> bool:
         return self.acceptSymbol == -1 and len(self.transitions) == 0
     
-    def addEpsilon(self, to, compact = True):
+    def addEpsilon(self, to: FA, compact : bool = True) -> None:
         if compact == True:
-            i = 0
+            i: int = 0
             while i < len(to.transitions):
                 fat = to.transitions[i]
                 if fat.isEpsilon() == False:
@@ -441,8 +457,8 @@ class FA:
             if self.acceptSymbol < 0 and to.acceptSymbol > -1:
                 self.acceptSymbol = to.acceptSymbol
         else:
-            found = False
-            i = 0
+            found: bool = False
+            i: int = 0
             while i < len(to.transitions):
                 fat = to.transitions[i]
                 if fat.isEpsilon() == False:
@@ -456,7 +472,7 @@ class FA:
                 self.__isCompact = False
                 self.__isDeterministic = False
     
-    def addTransition(self, rng, to, compact = True):
+    def addTransition(self, rng: FARange, to: FA, compact: bool = True) -> None:
         if rng.min == -1 and rng.max == -1:
             self.addEpsilon(to, compact)
             return
@@ -464,8 +480,8 @@ class FA:
             tmp = rng.min
             rng.min = rng.max
             rng.max = tmp
-        i = 0
-        insert = -1
+        i: int = 0
+        insert: int = -1
         while i < len(self.transitions):
             fat = self.transitions[i]
             if to is fat.to and rng.min == fat.min and rng.max == fat.max:
@@ -480,19 +496,19 @@ class FA:
             i += 1
         self.transitions.insert(insert+1,FATransition(to, rng.min, rng.max))
     
-    def clearTransitions(self):
+    def clearTransitions(self) -> None:
         self.transitions.clear()
         self.__isDeterministic = True
         self.__isCompact = True
     
     @staticmethod
-    def getFirstAcceptSymbol(states):
+    def getFirstAcceptSymbol(states: list[FA]) -> int:
         for state in states:
             if state.acceptSymbol != -1:
                 return state.acceptSymbol
         return -1
     
-    def fillClosure(self, result = None):
+    def fillClosure(self, result: list[FA] | None = None) -> list[FA]:
         if result is None:
             result = []
         if self in result:
@@ -505,7 +521,7 @@ class FA:
             i += 1
         return result
     
-    def fillEpsilonClosure(self, result = None):
+    def fillEpsilonClosure(self, result : list[FA] | None = None) -> list[FA]:
         if result is None:
             result = []
         if self in result:
@@ -513,10 +529,7 @@ class FA:
         result.append(self)
         if self.__isCompact == True:
             return result
-        
-        i = 0
-        while i < len(self.transitions):
-            trn = self.transitions[i]
+        for trn in self.transitions:
             if trn.isEpsilon() == True:
                 if trn.to.__isCompact == True:
                     if not (trn.to in result):
@@ -525,35 +538,38 @@ class FA:
                     trn.to.fillEpsilonClosure(result)
             else:
                 break
-            i += 1
         return result
     
-    def clone(self):
+    @staticmethod
+    def fillEpsilonClosureAll(states: list[FA], result: list[FA] | None = None) -> list[FA]:
+        if result is None:
+            result = []
+        for state in states:
+            state.fillEpsilonClosure(result)
+        return result
+    
+    def clone(self) -> FA:
         closure = self.fillClosure()
-        nclosure = []
-        i = 0
-        while i < len(closure):
-            cfa = closure[i]
+        nclosure: list[FA] = []
+        for cfa in closure:
             nfa = FA(cfa.acceptSymbol)
             nfa.__isDeterministic = cfa.__isDeterministic
             nfa.__isCompact = cfa.__isCompact
             nfa.__minimizationTag = cfa.__minimizationTag
+            nfa.__fromStates = cfa.__fromStates.copy()
             nfa.id = cfa.id
             nclosure.append(nfa)
-            i += 1
-        i = 0
+        i: int = 0
         while i< len(nclosure):
             cfa = closure[i]
             nfa = nclosure[i]
-            j = 0
-            while j < len(cfa.transitions):
-                fat = cfa.transitions[j]
+            j: int = 0
+            for fat in cfa.transitions:
                 nfa.transitions.append(FATransition(nclosure[closure.index(fat.to)], fat.min, fat.max))
-                j += 1
             i += 1
         return nclosure[0]
 
-    def totalize(self, closure = None):
+    def totalize(self, closure: list[FA] | None = None) -> None:
         if closure is None:
             closure = self.fillClosure()
         
@@ -573,7 +589,7 @@ class FA:
                 p.transitions.append(FATransition(s, maxi, 0x10ffff))
             
     @staticmethod
-    def _determinize(target, progress = None):
+    def _determinize(target: FA, progress: FAProgress = None) -> None:
         target.setIds()
         if progress is None:
             progress = FAProgress()
@@ -613,6 +629,7 @@ class FA:
         
         working.append(initial)
         result = FA()
+        result.__fromStates = list(initial)
         result.id = id
         id += 1
         result.__isDeterministic = True
@@ -690,6 +707,7 @@ class FA:
                     working.append(dststates)
                     # make a new DFA state
                     newfa = FA()
+                    newfa.__fromStates = list(dststates)
                     newfa.id = id
                     id += 1
                     dfaMap[fset]= newfa
@@ -725,10 +743,10 @@ class FA:
         progress.report(prog)
         return result
     
-    def toDfa(self, progress = None):
+    def toDfa(self, progress: FAProgress | None = None):
         return self._determinize(self, progress)
     
-    def _step(self, input):
+    def _step(self, input: int) -> FA | None:
         ic = len(self.transitions)
         i = 0
         while i < ic:
@@ -739,7 +757,7 @@ class FA:
         return None
         
     @staticmethod
-    def _minimize(a, progress):
+    def _minimize(a : FA, progress: FAProgress | None) -> FA:
         prog = 0
         if progress is None:
             progress = FAProgress()
@@ -980,17 +998,17 @@ class FA:
                     ffa.transitions.append(trns)
         return a
     
-    def toMinimizedDfa(self, progress = None):
+    def toMinimizedDfa(self, progress: FAProgress | None = None) -> FA:
         return FA._minimize(self, progress)
     
     @staticmethod
-    def _concat(lhs, rhs, compact):
+    def _concat(lhs: FA, rhs: FA, compact: bool) -> FA:
         acc = filter(lambda value: value.isAccepting(),lhs.fillClosure())
         for afa in acc:
             afa.acceptSymbol = -1
             afa.addEpsilon(rhs, compact)
     
-    def toCompact(self):
+    def toCompact(self) -> FA:
         result = self.clone()
         closure = result.fillClosure()
         done = False
@@ -1016,15 +1034,15 @@ class FA:
             fa.__isCompact = True
         return result
     
-    def setIds(self):
+    def setIds(self) -> None:
         i = 0
         for fa in self.fillClosure():
             fa.id = i
             i += 1
     @staticmethod
-    def literal(codepoints, accept = 0, compact = True):
+    def literal(codepoints: Iterator[int], accept: int = 0, compact: bool = True) -> FA:
         result = FA()
-        current = result
+        current: FA = result
         for cp in codepoints:
             current.acceptSymbol = -1
             newFa = FA()
@@ -1033,7 +1051,7 @@ class FA:
             current = newFa
         return result
     @staticmethod
-    def charset(ranges, accept = 0, compact = True):
+    def charset(ranges: Iterator[FARange], accept: int = 0, compact: bool = True) -> FA:
         result = FA()
         final = FA(accept)
         l = sorted(ranges)
@@ -1041,7 +1059,7 @@ class FA:
             result.addTransition(rng,final,compact)
         return result
     @staticmethod
-    def concat(exprs, accept = 0, compact = True):
+    def concat(exprs: Iterator[FA], accept: int = 0, compact: bool = True) -> FA:
         result = None
         left = None
         right = None
@@ -1065,9 +1083,11 @@ class FA:
         for cfa in cl:
             if cfa.acceptSymbol != -1:
                 cfa.acceptSymbol = accept
+        if result is None:
+            return FA(accept)
         return result
     @staticmethod
-    def union(exprs, accept = 0, compact = True):
+    def union(exprs: Iterator[FA], accept: int = 0, compact: bool = True) -> FA:
         result = FA()
         final = FA()
         final.acceptSymbol = accept
@@ -1081,7 +1101,7 @@ class FA:
             result.addEpsilon(nfa, compact)
         return result
     @staticmethod 
-    def optional(expr, accept = 0, compact = True):
+    def optional(expr: Iterator[FA], accept: int = 0, compact: bool = True) -> FA:
         result = expr.clone()
         acc = result.fillClosure()
         for afa in acc:
@@ -1090,16 +1110,15 @@ class FA:
                 result.addEpsilon(afa, compact)
         return result
     @staticmethod
-    def repeat(expr, minOccurs = -1, maxOccurs = -1, accept = 0, compact = True):
-        DEFAULT_OCCURS = [-1,0]
+    def repeat(expr: FA, minOccurs: int = 0, maxOccurs: int = 0, accept: int = 0, compact: bool = True) -> FA:
         expr = expr.clone()
         if minOccurs > 0 and maxOccurs > 0 and minOccurs > maxOccurs:
             raise Exception("Minimum is greater than maximum")
         result = None
         match minOccurs:
-            case minOccurs if minOccurs in DEFAULT_OCCURS:
+            case -1|0:
                 match maxOccurs:
-                    case maxOccurs if maxOccurs in DEFAULT_OCCURS:
+                    case -1|0:
                         result = FA()
                         result.acceptSymbol = accept
                         result.addEpsilon(expr, compact)
@@ -1122,7 +1141,7 @@ class FA:
                         return result
             case 1:
                 match maxOccurs:
-                    case maxOccurs if maxOccurs in DEFAULT_OCCURS:
+                    case -1|0:
                         result = FA.concat([expr, FA.repeat(expr, 0, 0, accept, compact)], accept, compact)
                         return result
                     case 1:
@@ -1132,7 +1151,7 @@ class FA:
                         return result
             case _:
                 match maxOccurs:
-                    case maxOccurs if maxOccurs in DEFAULT_OCCURS:
+                    case -1|0:
                         result = FA.concat([FA.repeat(expr, minOccurs, minOccurs, accept, compact), FA.repeat(expr, 0, 0, accept, compact)], accept, compact)
                         return result
                     case 1:
@@ -1151,7 +1170,7 @@ class FA:
                         result = FA.concat([FA.repeat(expr, minOccurs, minOccurs, accept, compact), FA.repeat(FA.optional(expr, accept, compact), maxOccurs - minOccurs, maxOccurs - minOccurs, accept, compact)], accept, compact)
                         return result
     
-    def fillInputTransitionRangesGroupedByState(self, includeEpsilonTransitions = False, result = None):
+    def fillInputTransitionRangesGroupedByState(self, includeEpsilonTransitions: bool = False, result: dict[FA,list[FARange]] = None) -> dict[FA,list[FARange]]:
         if result is None:
             result = dict()
         
@@ -1169,16 +1188,16 @@ class FA:
         return result
     
     @staticmethod
-    def toUtf32(text):
+    def toUtf32(text: str) -> Iterator[int]:
         for s in text:
             yield ord(s)
 
-    def toArray(self):
+    def toArray(self) -> list[int]:
         fa = self
-        result = []
+        result: list[int] = []
         closure = fa.fillClosure()
-        stateIndices = []
-        i = 0
+        stateIndices: list[int] = []
+        i: int = 0
         while i < len(closure):
             cfa = closure[i]
             stateIndices.append(len(result))
@@ -1191,7 +1210,7 @@ class FA:
                 for pack in FARange.toPacked(itr[1]):
                     result.append(pack)
             i += 1
-        state = 0
+        state: int = 0
         while state < len(result):
             state += 1
             tlen = result[state]
@@ -1207,7 +1226,7 @@ class FA:
         return result
     
     @staticmethod
-    def fromArray(arr):
+    def fromArray(arr: list[int]) -> FA:
         if len(arr)==0:
             return FA()
         
@@ -1252,22 +1271,41 @@ class FA:
                 i += 1
         return states.get(0)
     
-    def toLexer(tokens, makeDfa = True, compact = True, progress = None):
+    def toLexer(tokens: Iterator[FA], makeDfa: bool = True, compact: bool = True, progress: FAProgress | None = None) -> FA:
         if makeDfa == True:
-            i = 0
+            i: int = 0
             while i < len(tokens):
                 tokens[i] = tokens[i].toMinimizedDfa(progress)
                 i += 1
         result = FA()
-        for token in tokens:
-            result.addEpsilon(token, compact)
+        if makeDfa == True:
+            for token in tokens:
+                result.addEpsilon(token.toMinimizedDfa(progress), True)
+        else:
+            for token in tokens:
+                result.addEpsilon(token, compact)
         if makeDfa == True:
             return result.toDfa(progress)
         else:
             return result
-        
+
     @staticmethod
-    def _normalizeSortedRangeList(pairs):
+    def fillMove(states: list[FA], codepoint: int, result: list[FA] | None = None) -> list[FA]:
+        if result is None:
+            result = []
+        for state in states:
+            for fat in state.transitions:
+                # epsilon dsts should already be in states:
+                if fat.isEpsilon():
+                    continue
+                if codepoint < fat.min:
+                    break
+                if codepoint <= fat.max:
+                    fat.to.fillEpsilonClosure(result)
+        return result
+    
+    @staticmethod
+    def __normalizeSortedRangeList(pairs):
         i = 1
         while i < len(pairs):
             if pairs[i - 1].max + 1 >= pairs[i].min:
@@ -1278,7 +1316,7 @@ class FA:
             i += 1
         i = 1
     @staticmethod
-    def _fromHexChar(h):
+    def __fromHexChar(h):
         if ord(":") > h and ord("/") < h:
             return h - ord("0")
         if ord("G") > h and ord("@") < h:
@@ -1288,7 +1326,7 @@ class FA:
         raise Exception("The value was not hex.")
     
     @staticmethod
-    def _isHexChar(h):
+    def __isHexChar(h):
         if ord(":") > h and ord("/") < h:
             return True
 
@@ -1300,8 +1338,8 @@ class FA:
         return False
     
     @staticmethod
-    def _parseModifier(expr, pc, accept, compact):
-        if(pc.codepoint == -1):
+    def __parseModifier(expr, pc, accept, compact):
+        if pc.codepoint == -1:
             return expr
         position = pc.position
         match chr(pc.codepoint):
@@ -1343,7 +1381,7 @@ class FA:
                 expr = FA.repeat(expr, min, max, accept, compact)
         return expr
     @staticmethod
-    def _parseEscapePart(pc):
+    def __parseEscapePart(pc):
         if -1 == pc.codepoint:
             return -1
         match chr(pc.codepoint):
@@ -1363,38 +1401,38 @@ class FA:
                 pc.advance()
                 return ord("\r")
             case "x":
-                if -1 == pc.advance() or FA._isHexChar(pc.codepoint) == False:
+                if -1 == pc.advance() or FA.__isHexChar(pc.codepoint) == False:
                     return ord("x")
-                b = FA._fromHexChar(pc.codepoint)
-                if -1 == pc.advance() or FA._isHexChar(pc.codepoint) == False:
+                b = FA.__fromHexChar(pc.codepoint)
+                if -1 == pc.advance() or FA.__isHexChar(pc.codepoint) == False:
                     return b
                 b <<= 4
-                b |= FA._fromHexChar(pc.codepoint)
-                if -1 == pc.advance() or FA._isHexChar(pc.codepoint) == False:
+                b |= FA.__fromHexChar(pc.codepoint)
+                if -1 == pc.advance() or FA.__isHexChar(pc.codepoint) == False:
                     return b
                 b <<= 4
-                b |= FA._fromHexChar(pc.codepoint)
-                if -1 == pc.advance() or FA._isHexChar(pc.codepoint) == False:
+                b |= FA.__fromHexChar(pc.codepoint)
+                if -1 == pc.advance() or FA.__isHexChar(pc.codepoint) == False:
                     return b
                 b <<= 4
-                b |= FA._fromHexChar(pc.codepoint)
+                b |= FA.__fromHexChar(pc.codepoint)
                 return b
             case "u":
                 if -1 == pc.advance():
                     return ord("u")
-                u = FA._fromHexChar(pc.codepoint)
+                u = FA.__fromHexChar(pc.codepoint)
                 u <<= 4
                 if -1 == pc.advance():
                     return u
-                u |= FA._fromHexChar(pc.codepoint)
+                u |= FA.__fromHexChar(pc.codepoint)
                 u <<= 4
                 if -1 == pc.advance():
                     return u
-                u |= FA._fromHexChar(pc.codepoint)
+                u |= FA.__fromHexChar(pc.codepoint)
                 u <<= 4
                 if -1 == pc.advance():
                     return u
-                u |= FA._fromHexChar(pc.codepoint)
+                u |= FA.__fromHexChar(pc.codepoint)
                 return u
             case _:
                 i = pc.codepoint
@@ -1402,7 +1440,7 @@ class FA:
                 return i
         
     @staticmethod
-    def _parseRangeEscapePart(pc):
+    def __parseRangeEscapePart(pc):
         if pc.codepoint == -1:
             return -1
         match chr(pc.codepoint):
@@ -1425,38 +1463,38 @@ class FA:
                 pc.advance()
                 return ord("\r")
             case "x":
-                if -1 == pc.advance() or FA._isHexChar(pc.codepoint) == False:
+                if -1 == pc.advance() or FA.__isHexChar(pc.codepoint) == False:
                     return ord("x")
-                b = FA._fromHexChar(pc.codepoint)
-                if -1 == pc.advance() or FA._isHexChar(pc.codepoint) == False:
+                b = FA.__fromHexChar(pc.codepoint)
+                if -1 == pc.advance() or FA.__isHexChar(pc.codepoint) == False:
                     return b
                 b <<= 4
-                b |= FA._fromHexChar(pc.codepoint)
-                if -1 == pc.advance() or FA._isHexChar(pc.codepoint) == False:
+                b |= FA.__fromHexChar(pc.codepoint)
+                if -1 == pc.advance() or FA.__isHexChar(pc.codepoint) == False:
                     return b
                 b <<= 4
-                b |= FA._fromHexChar(pc.codepoint)
-                if -1 == pc.advance() or FA._isHexChar(pc.codepoint) == False:
+                b |= FA.__fromHexChar(pc.codepoint)
+                if -1 == pc.advance() or FA.__isHexChar(pc.codepoint) == False:
                     return b
                 b <<= 4
-                b |= FA._fromHexChar(pc.codepoint)
+                b |= FA.__fromHexChar(pc.codepoint)
                 return b
             case "u":
                 if -1 == pc.advance():
                     return ord("u")
-                u = FA._fromHexChar(pc.codepoint)
+                u = FA.__fromHexChar(pc.codepoint)
                 u <<= 4
                 if -1 == pc.advance():
                     return u
-                u |= FA._fromHexChar(pc.codepoint)
+                u |= FA.__fromHexChar(pc.codepoint)
                 u <<= 4
                 if -1 == pc.advance():
                     return u
-                u |= FA._fromHexChar(pc.codepoint)
+                u |= FA.__fromHexChar(pc.codepoint)
                 u <<= 4
                 if -1 == pc.advance():
                     return u
-                u |= FA._fromHexChar(pc.codepoint)
+                u |= FA.__fromHexChar(pc.codepoint)
                 return u
             case _:
                 i = pc.codepoint
@@ -1464,7 +1502,7 @@ class FA:
                 return i
         
     @staticmethod
-    def _parseSet(pc):
+    def __parseSet(pc):
         result = []
         pc.ensureStarted()
         pc.expecting(['['])
@@ -1518,7 +1556,7 @@ class FA:
                 if readFirstChar == False:
                     if ord("\\") == pc.codepoint:
                         pc.advance()
-                        firstChar = FA._parseRangeEscapePart(pc)
+                        firstChar = FA.__parseRangeEscapePart(pc)
                     else:
                         firstChar = pc.codepoint
                         pc.advance()
@@ -1542,7 +1580,7 @@ class FA:
                 else:
                     min = firstChar
                     pc.advance()
-                    result.append(FARange(min, FA._parseRangeEscapePart(pc)))
+                    result.append(FARange(min, FA.__parseRangeEscapePart(pc)))
                 
                 wantRange = False
                 readFirstChar = False
@@ -1556,7 +1594,40 @@ class FA:
         pc.advance()
         return (isNot, result)
     @staticmethod
-    def _toNotRanges(ranges):
+    def __invertRanges(ranges: list[FARange]):
+        if ranges is None:
+            return
+        last = 0x10ffff
+        e = iter(ranges)
+        n = next(e,None)
+        if n is None:
+            yield FARange(0,0x10ffff)
+            return
+        if n.min > 0:
+            yield FARange(0,n.min - 1)
+            last = n.max
+            if 0x10ffff <= last:
+                return
+        elif n.min == 0:
+            last = n.max
+            if 0x10ffff <= last:
+                return
+        n = next(e, None)
+        while not (n is None):
+            if (0x10ffff <= last):
+                return
+            if last + 1 < n.min:
+                yield FARange(last+1,n.min-1)
+            
+            last = n.max
+            n = next(e, None)
+        if 0x10ffff > last:
+            yield FARange(last+1,0x10ffff)
+        
+    @staticmethod
+    def __toNotRanges(ranges):
+        if ranges is None:
+            return
         # expects ranges to be normalized
         last = 0x10ffff
         if hasattr(ranges,'__iter__'):
@@ -1576,7 +1647,7 @@ class FA:
             last = cur.max
             if 0x10ffff <= last:
                 return
-        while cur != None:
+        while not (cur is None):
             if 0x10ffff <= last:
                 return
             if last + 1 < cur.min:
@@ -1588,7 +1659,7 @@ class FA:
             yield FARange((last + 1), 0x10ffff)
     
     @staticmethod
-    def _parse(pc, accept = 0, compact = True):
+    def __parse(pc, accept = 0, compact = True):
         result = None
         nextExpr = None
         ich = 0
@@ -1605,7 +1676,7 @@ class FA:
 
                     pc.advance()
 
-                    dot = FA._parseModifier(dot, pc, accept, compact)
+                    dot = FA.__parseModifier(dot, pc, accept, compact)
                     if result is None:
                         result = dot
                     else:
@@ -1698,28 +1769,28 @@ class FA:
                             nextExpr = FA.charset(FARange.toUnpacked(FACharacterClasses.digit), accept, compact)
                             pc.advance()
                         case "D":
-                            nextExpr = FA.charset(FA._toNotRanges(FARange.toUnpacked(FACharacterClasses.digit)), accept, compact)
+                            nextExpr = FA.charset(FA.__toNotRanges(FARange.toUnpacked(FACharacterClasses.digit)), accept, compact)
                             pc.advance()
                         case "s":
                             nextExpr = FA.charset(FARange.toUnpacked(FACharacterClasses.space), accept, compact)
                             pc.advance()
                         case "S":
-                            nextExpr = FA.charset(FA._toNotRanges(FARange.toUnpacked(FACharacterClasses.space)), accept, compact)
+                            nextExpr = FA.charset(FA.__toNotRanges(FARange.toUnpacked(FACharacterClasses.space)), accept, compact)
                             pc.advance()
                         case "w":
                             nextExpr = FA.charset(FARange.toUnpacked(FACharacterClasses.word), accept, compact);
                             pc.advance()
                         case "W":
-                            nextExpr = FA.charset(FA._toNotRanges(FARange.toUnpacked(FACharacterClasses.word)), accept, compact);
+                            nextExpr = FA.charset(FA.__toNotRanges(FARange.toUnpacked(FACharacterClasses.word)), accept, compact);
                             pc.advance()
                         case _:
-                            ich = FA._parseEscapePart(pc)
+                            ich = FA.__parseEscapePart(pc)
                             if -1 != ich:
                                 nextExpr = FA.literal([ich], accept, compact)
                             else:
                                 pc.expecting([]) # throw an error
                             
-                    nextExpr = FA._parseModifier(nextExpr, pc, accept, compact)
+                    nextExpr = FA.__parseModifier(nextExpr, pc, accept, compact)
                     if not (result is None):
                         result = FA.concat([result, nextExpr], accept, compact)
                     else:
@@ -1734,7 +1805,7 @@ class FA:
                         pc.advance()
                     
                     pc.expecting([])
-                    nextExpr = FA._parse(pc, accept, compact)
+                    nextExpr = FA.__parse(pc, accept, compact)
                     pc.expecting([')'])
                     if -1 == pc.advance():
                         if result is None:
@@ -1742,26 +1813,26 @@ class FA:
                         else:
                             return FA.concat([result, nextExpr], accept, compact)
                         
-                    nextExpr = FA._parseModifier(nextExpr, pc, accept, compact)
+                    nextExpr = FA.__parseModifier(nextExpr, pc, accept, compact)
                     if result is None:
                         result = nextExpr
                     else:
                         result = FA.concat([result, nextExpr], accept, compact)
                 case "|":
                     if -1 != pc.advance():
-                        nextExpr = FA._parse(pc, accept, compact)
+                        nextExpr = FA.__parse(pc, accept, compact)
                         result = FA.union([result, nextExpr], accept, compact)
                     else:
                         result = FA.optional(result, accept, compact)
                 case "[":
-                    seti = FA._parseSet(pc)
+                    seti = FA.__parseSet(pc)
                     sortset = seti[1]
                     sortset.sort()
-                    FA._normalizeSortedRangeList(sortset)
+                    FA.__normalizeSortedRangeList(sortset)
                     if seti[0] == True:
-                        sortset = list(FA._toNotRanges(sortset))
+                        sortset = list(FA.__toNotRanges(sortset))
                     nextExpr = FA.charset(sortset, accept)
-                    nextExpr = FA._parseModifier(nextExpr, pc, accept, compact)
+                    nextExpr = FA.__parseModifier(nextExpr, pc, accept, compact)
                     if result is None:
                         result = nextExpr
                     else:
@@ -1770,33 +1841,33 @@ class FA:
                     ich = pc.codepoint
                     nextExpr = FA.literal([ich], accept, compact)
                     pc.advance()
-                    nextExpr = FA._parseModifier(nextExpr, pc, accept, compact)
+                    nextExpr = FA.__parseModifier(nextExpr, pc, accept, compact)
                     if result is None:
                         result = nextExpr
                     else:
                         result = FA.concat([result, nextExpr], accept, compact)
         return result
     @staticmethod
-    def parse(expression, accept = 0, compact = True):
+    def parse(expression: str, accept: int = 0, compact: bool = True) -> FA:
         pc = _ParseContext(expression)
-        result = FA._parse(pc, accept, compact)
+        result = FA.__parse(pc, accept, compact)
         if result is None:
             result = FA(accept)
         return result
     @staticmethod
-    def acceptingFilter(state):
+    def acceptingFilter(state: FA) -> bool:
         return state.acceptSymbol != -1
     @staticmethod
-    def finalFilter(state):
+    def finalFilter(state: FA) -> bool:
         return state.isFinal()
     @staticmethod
-    def neutralFilter(state):
+    def neutralFilter(state: FA) -> bool:
         return state.isNeutral()
     @staticmethod
-    def trapFilter(state):
+    def trapFilter(state: FA) -> bool:
         return state.isTrap()
 
-    def fillFind(self, predicate, result = None):
+    def fillFind(self, predicate: Callable[[FA], bool], result: list[FA] = None) -> list[FA]:
         if result is None:
             result = []
         if self in result:
@@ -1807,7 +1878,7 @@ class FA:
             trn.to.fillFind(predicate, result)
         return result
     
-    def findFirst(self, predicate):
+    def findFirst(self, predicate: Callable[[FA], bool]) -> FA | None:
         if predicate(self) == True:
             return self
         for trn in self.transitions:
@@ -1946,13 +2017,13 @@ class FA:
         return result
     
     @staticmethod
-    def __toExpression(fa):
-        closure = []
-        fsmEdges = []
-        first = fa
-        final = None
+    def __toExpression(fa: FA) -> str:
+        closure: list[FA] = []
+        fsmEdges: list[_ExpEdge] = []
+        first: FA = fa
+        final: FA = None
         # linearize the state machine
-        acc = []
+        acc: list[FA] = []
         for f in first.fillClosure():
             if f.acceptSymbol != -1:
                 acc.append(f)
@@ -2021,8 +2092,8 @@ class FA:
         closure[0].setIds()
         closure.insert(0, first)
         closure.append(final)
-        inEdges = []
-        outEdges = []
+        inEdges: list[_ExpEdge] = []
+        outEdges: list[_ExpEdge] = []
         while len(closure) > 2:
             node = closure[1]
             loops = []
@@ -2074,16 +2145,349 @@ class FA:
             sb += ")"
         
         return sb
-    def toString(self, format = ""):
+    def toString(self, format: str | None = "") -> str:
         if (format is None) or len(format) == 0:
             return str(self)
         if format == "e":
             return FA.__toExpression(self)
         raise Exception("Invalid format specifier")
+    
+    @staticmethod
+    def __escapeLabel(label: str):
+        if (label is None) or len(label) == 0:
+            return label
+        result = label.replace("\\", "\\\\")
+        result = result.replace("\"", "\\\"")
+        result = result.replace("\n", "\\n")
+        result = result.replace("\r", "\\r")
+        result = result.replace("\0", "\\0")
+        result = result.replace("\v", "\\v")
+        result = result.replace("\t", "\\t")
+        result = result.replace("\f", "\\f")
+        return result
 
+    @staticmethod
+    def __writeCompoundDotTo(closure: list[FA], writer: list[str], options: FADotGraphOptions | None = None) -> None:
+        writer.append("digraph FA {\n")
+        vert: bool = True
+        if options is None or options.vertical == False:
+            writer.append("rankdir=LR\n")
+            vert = False
+    
+        writer.append("node [shape=circle]\n")
+        opt2 = FADotGraphOptions()
+        opt2.debugSourceNfa = None
+        if options is None:
+            options = FADotGraphOptions()
+        opt2.statePrefix = options.statePrefix
+        opt2.debugString = options.debugString
+        opt2.debugShowNfa = False
+        opt2.dpi = options.dpi
+        opt2.acceptSymbolNames = options.acceptSymbolNames
+        opt2.hideAcceptSymbolIds = options.hideAcceptSymbolIds
+        opt2.blockEnds = options.blockEnds
+        if vert == False:
+            FA.__writeDotTo(closure, writer, options, 2)
+            FA.__writeDotTo(options.debugSourceNfa.fillClosure(), writer, opt2, 1)
+        else:
+            FA.__writeDotTo(options.debugSourceNfa.fillClosure(), writer, opt2, 2)
+            FA.__writeDotTo(closure, writer, options, 1)
+        writer.append("}\n")
+		
+    @staticmethod
+    def __writeDotTo(closure : list[FA], writer : list[str], options : FADotGraphOptions|None = None, clusterIndex : int = -1) -> None:
+        if options is None:
+            options = FADotGraphOptions()
+        hasBlockEnds = options.debugShowNfa == False and (options.debugString is None) and (not (options.blockEnds is None))
+        spfx = "q"
+        if not (options.statePrefix is None) and len(options.statePrefix)>0:
+            spfx = options.statePrefix
+        pfx = ""
+        if clusterIndex != -1:
+            writer.append(f"subgraph cluster_{clusterIndex} {{\n")
+            pfx = f"c{clusterIndex}"
+        else:
+            writer.append("digraph FA {\n")
+        if options.vertical == False:
+            writer.append("rankdir=LR\n");
+        
+        writer.append("node [shape=circle]\n")
+        accepting: list[FA] = []
+        finals: list[FA] = []
+        neutrals: list[FA] = []
+        for ffa in closure:
+            if ffa.acceptSymbol != -1:
+                accepting.append(ffa)
+            elif ffa.isNeutral():
+                neutrals.append(ffa)
+            elif ffa.isFinal():
+                finals.append(ffa)
+
+        fromStates: list[FA] | None = None
+        toStates: list[FA] | None = None
+
+        tchar: int = -1
+        if not (options.debugString is None):
+            for ch in FA.toUtf32(options.debugString):
+                if fromStates is None:
+                    fromStates = closure[0].fillEpsilonClosure()
+                else:
+                    fromStates = toStates
+                tchar = ch
+                toStates = FA.fillMove(fromStates, ch)
+                if len(toStates) == 0:
+                    break
+        if fromStates is None:
+            fromStates = closure[0].fillEpsilonClosure(fromStates)
+        
+        if not (toStates is None):
+            toStates = FA.fillEpsilonClosureAll(toStates)
+        else:
+            toStates = fromStates
+        i = 0
+        for ffa in closure:
+            isfrom = (not (fromStates is None)) and ffa in FA.fillEpsilonClosureAll(fromStates)
+            rngGrps = ffa.fillInputTransitionRangesGroupedByState()
+            for rngGrp in rngGrps.items():
+                istrns = isfrom and (not (toStates is None)) and (not (options.debugString is None)) and rngGrp[0] in toStates
+                di = closure.index(rngGrp[0])
+                writer.append(f"{pfx}{spfx}{i}->{pfx}{spfx}{di} [label=\"")
+                sb = ""
+                notRanges = list(FA.__invertRanges(rngGrp[1]))
+                if len(notRanges)*1.5 > len(rngGrp[1]):
+                    sb = FA.__appendRangesTo(rngGrp[1],sb)
+                else:
+                    if len(notRanges) == 0:
+                        sb+="."
+                    else:
+                        sb+="^"
+                        sb = FA.__appendRangesTo(notRanges,sb)
+
+                if len(sb) != 1 or sb == " ":
+                    writer.append('[')
+                    if len(sb) > 16:
+                        sb = sb[0:16]
+                        sb += "..."
+                    
+                    writer.append(f"{FA.__escapeLabel(sb)}]")
+                else:
+                    writer.append(FA.__escapeLabel(sb))
+                if istrns == False:
+                    writer.append("\"]")
+                else:
+                    writer.append("\",color=green]\n")
+                
+            # do epsilons
+            for fat in ffa.transitions:
+                if fat.isEpsilon() == True:
+                    istrns = (not (toStates is None)) and (not (options.debugString is None)) and (ffa in toStates) and fat.to in toStates
+                    col = "gray"
+                    if istrns == True:
+                        col = "green"
+                    writer.append(f"{pfx}{spfx}{i}->{pfx}{spfx}{closure.index(fat.to)} [style=dashed,color={col}]\n")
+    
+            # do block ends
+            bel = 0
+            if not (options.blockEnds is None):
+                bel = len(options.blockEnds)
+            if hasBlockEnds == True and ffa.acceptSymbol != -1 and bel > ffa.acceptSymbol and (not (options.blockEnds[ffa.acceptSymbol] is None)):
+                writer.append(f"{pfx}{spfx}{i}->{pfx}blockEnd{ffa.acceptSymbol}{spfx}0 [style=dashed,label=\".*?\"]\n")
+                
+            i += 1
+        
+        delim = ""
+        if hasBlockEnds == True:
+            bel = 0
+            if not (options.blockEnds is None):
+                bel = len(options.blockEnds)
+            i = 0
+            while i < bel:
+                bfa = options.blockEnds[i]
+                if not (bfa is None):
+                    bclose = bfa.fillClosure()
+                    delim = ""
+                    qi = 0
+                    while qi < len(bclose):
+                        cbfa = bclose[qi]
+                        rngGrps = cbfa.fillInputTransitionRangesGroupedByState(True)
+                        for rngGrp in rngGrps.items():
+                            di = bclose.index(rngGrp[0])
+                            writer.append(f"{pfx}blockEnd{i}{spfx}{qi}->{pfx}blockEnd{i}{spfx}{di} [label=\"")
+                            sb = FA.__appendRangesTo(rngGrp[1],sb)
+                            if len(sb) != 1 or sb == " ":
+                                middle = ""
+                                if len(sb) > 16:
+                                    sb = sb[:16]
+                                    middle = "..."
+                                writer.append(f"[{FA.__escapeLabel(sb)}{middle}]\"]\n")
+                            else:
+                                writer.append(f"{FA.__escapeLabel(sb)}\"]\n")
+                            
+                        # do epsilons
+                        for fat in cbfa.transitions:
+                            if fat.isEpsilon() == True:
+                                di = bclose.index(fat.to);
+                                writer.append(f"{pfx}blockEnd{i}{spfx}{qi}->{pfx}blockEnd{i}{spfx}{di} [style=dashed,color=gray]\n")
+                        qi += 1
+                    qi = 0
+                    while qi < len(bclose):
+                        cbfa = bclose[qi]
+                        writer.append(f"{pfx}blockEnd{i}{spfx}{qi} [label=<<TABLE BORDER=\"0\"><TR><TD>(be){spfx}<SUB>{qi}</SUB></TD></TR>")
+                        if cbfa.acceptSymbol!=-1 and options.hideAcceptSymbolIds == False:
+                            acc = None
+                            if (not (options.acceptSymbolNames is None)) and len(options.acceptSymbolNames) > i:
+                                acc = options.acceptSymbolNames[i]
+                            if acc is None:
+                                acc = str(i)
+                            writer.append(f"<TR><TD>{acc.replace("\"", "&quot;")}</TD></TR>")
+                            
+                        writer.append("</TABLE>>")
+                        if cbfa.acceptSymbol != -1:
+                            writer.append(",shape=doublecircle")
+                        elif cbfa.isFinal() == True or cbfa.isNeutral() == True:
+                            writer.append(",color=gray")
+                        writer.append("]\n")
+                        qi += 1
+                i += 1
+        delim = ""
+        i = 0
+        for ffa in closure:
+            col = ""
+            if not (options.debugString is None):
+                if not (toStates is None):
+                    epstates= FA.fillEpsilonClosureAll(toStates)
+                    if  ffa in epstates:
+                        col = "color=green,"
+                    elif ffa in epstates and (not (ffa in toStates)):
+                        col = "color=darkgreen,"
+                else:
+                    col = "color=darkgreen,"
+                
+            writer.append(f"{pfx}{spfx}{i} [{col}label=<<TABLE BORDER=\"0\"><TR><TD>{spfx}<SUB>{i}</SUB></TD></TR>")
+            
+            if not (options.debugSourceNfa is None):
+                fromStates = ffa.__fromStates
+                if not (fromStates is None):
+                    brk =  int(math.floor(math.sqrt(len(fromStates))))
+                    if len(fromStates) <= 3:
+                        brk = 3
+                    j = 0
+                    while j < len(fromStates):
+                        if j == 0:
+                            writer.append("<TR><TD>{ ")
+                            delim = ""
+                        elif (j % brk) == 0:
+                            delim = ""
+                            writer.append("</TD></TR><TR><TD>")
+                        fromFA = fromStates[j]
+                        writer.append(f"{delim}q<SUB>{options.debugSourceNfa.fillClosure().index(fromFA)}</SUB>")
+                        # putting a comma here is what we'd like
+                        # but it breaks dot no matter how its encoded
+                        delim = " "
+                        if j==len(fromStates)-1:
+                            writer.append(" }</TD></TR>")
+                        j += 1
+                
+            bel = 0
+            if not (options.blockEnds is None):
+                bel = len(options.blockEnds)
+            if ffa.acceptSymbol != -1 and options.hideAcceptSymbolIds == False and not (hasBlockEnds == True and bel > ffa.acceptSymbol and (not (options.blockEnds[ffa.acceptSymbol] is None))):
+                acc = None
+                if not (options.acceptSymbolNames is None) and len(options.acceptSymbolNames) > ffa.acceptSymbol:
+                    acc = options.acceptSymbolNames[ffa.acceptSymbol]
+                if acc is None:
+                    acc = str(ffa.acceptSymbol)    
+                writer.append(f"<TR><TD>{acc.replace("\"", "&quot;")}</TD></TR>")
+            
+            writer.append("</TABLE>>")
+            isfinal = False
+
+            if (ffa in accepting) and ((hasBlockEnds == False or len(bel) <= ffa.acceptSymbol or (options.blockEnds[ffa.acceptSymbol] is None))):
+                writer.append(",shape=doublecircle")
+            elif isfinal == True or ffa in neutrals:
+                if ((fromStates is None) or not (ffa in fromStates)) and ((toStates is None) or not (ffa in toStates)):
+                    writer.append(",color=gray")
+            
+            writer.append("]\n")
+            i+=1
+        
+        delim = ""
+        if len(accepting) > 0:
+            for ntfa in accepting:
+                if hasBlockEnds == False or bel <= ntfa.acceptSymbol or (options.blockEnds is None) or (options.blockEnds[ntfa.acceptSymbol] is None):
+                    writer.append(f"{delim}{pfx}{spfx}{closure.index(ntfa)}")
+                    delim = ","
+            if delim != "":
+                writer.append(" [shape=doublecircle]\n")
+            
+        delim = ""
+        if len(neutrals) > 0:
+            for ntfa in neutrals:
+                if ((fromStates is None) or (not (ntfa in fromStates))) and ((toStates is None) or (not (ntfa in toStates))):
+                    writer.append(f"{delim}{pfx}{spfx}{closure.index(ntfa)}")
+                    delim = ","
+                
+            writer.append(" [color=gray]\n")
+            delim = ""
+        
+        delim = ""
+        if len(finals) > 0:
+            for ntfa in finals:
+                writer.append(f"{delim}{pfx}{spfx}{closure.index(ntfa)}")
+                delim = ","
+            writer.append(" [shape=circle,color=gray]\n")
+
+        writer.append("}\n")
+
+    def __writeDot(self, writer: list[str], options: FADotGraphOptions | None = None) -> None:
+        if (not (options is None)) and (not (options.debugSourceNfa is None)) and options.debugShowNfa == True:
+            FA.__writeCompoundDotTo(self.fillClosure(), writer, options)
+        else:
+            FA.__writeDotTo(self.fillClosure(), writer, options)
+			
+    def renderToFile(self, path: str, options : FADotGraphOptions | None = None) -> None:
+        if options is None:
+            options = FADotGraphOptions()
+        cmd: list[str] = ["dot"]
+        arg: str = "-T"
+        ext: str = os.path.splitext(path)[1].lower()
+        dotwriter: list[str] = []
+        match ext:
+            case ".dot":
+                self.__writeDot(dotwriter, options)
+                output = open(path,"w")
+                output.write("".join(dotwriter))
+                output.close()
+                return
+            case ".png":
+                arg += "png"
+            case ".jpg"|".jpeg":
+                arg += "jpg"
+            case ".bmp":
+                arg += "bmp"
+            case ".svg":
+                arg += "svg"
+            case _:
+                raise Exception("Unsupported output format")
+        cmd.append(arg)
+        if options.dpi > 0:
+            cmd.append(f"-Gdpi={options.dpi}")
+        self.__writeDot(dotwriter, options)
+        cmd.append(f"-o{path}")
+        p = Popen(cmd, stdout=None, stdin=PIPE, stderr=None, text=True)
+        p.communicate(input="".join(dotwriter))[0]
+
+        
 #fa = FA.parse("foo\\/(.*)",0)
-#fa = FA.parse("(\\/api\\/spiffs\\/.*)|(\\/api\\/sdcard\\/.*)",0,True)
-#print(fa.toString("e"))
+nfa = FA.parse("[A-Z_a-z][0-9A-Z_a-z]*",0,False)
+opts = FADotGraphOptions()
+opts.hideAcceptSymbolIds = True
+opts.debugShowNfa = True
+opts.debugSourceNfa = nfa
+opts.dpi = 300
+opts.vertical = False
+nfa.toDfa().renderToFile("test.jpg",opts)
+
 # compact = False
 # firstPart = FA.charset([FARange(ord("A"),ord("Z")),FARange(ord("a"),ord("z")),FARange(ord("_"),ord("_"))],0,compact)
 # nextPart = FA.charset([FARange(ord("A"),ord("Z")),FARange(ord("a"),ord("z")),FARange(ord("_"),ord("_")),FARange(ord("0"),ord("9"))],0,compact)
