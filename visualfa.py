@@ -1933,7 +1933,7 @@ class FA:
             return ""
         if len(strings) == 1:
             return strings[0]    
-        return f"({"|".join(strings)})"
+        return "("+"|".join(strings)+")"
     
     @staticmethod
     def __toExpressionKleeneStar(s, noWrap,result):
