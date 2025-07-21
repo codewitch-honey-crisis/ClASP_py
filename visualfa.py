@@ -15,6 +15,7 @@ class _ParseContext:
         self.position = position
         self.line = line
         self.column = column
+    
     def advance(self):
         if self.position >= len(self.input):
             self.codepoint = -1
@@ -293,7 +294,13 @@ class FACharacterClasses:
             result["xdigit"] = FACharacterClasses.xdigit
             FACharacterClasses.__known = result
         return FACharacterClasses.__known
-    
+
+class _ExpEdge:
+    def __init__(self):
+        self.exp = None
+        self.fromState = None
+        self.toState = None
+
 class _FListNode:
     def __init__(self, q, sl):
         self.nextNode = None
@@ -397,7 +404,12 @@ class FA:
         self.__isDeterministic = True
         self.__isCompact = True
         self.id = -1
-
+    
+    def __str__(self):
+        if self.id == -1: 
+            pass
+        return f"q{self.id}"
+    
     def isCompact(self):
         return self.__isCompact
     
@@ -480,41 +492,41 @@ class FA:
                 return state.acceptSymbol
         return -1
     
-    def fillClosure(self, list = None):
-        if list is None:
-            list = []
-        if self in list:
-            return list
-        list.append(self)
+    def fillClosure(self, result = None):
+        if result is None:
+            result = []
+        if self in result:
+            return result
+        result.append(self)
         i = 0
         while i < len(self.transitions):
             trn = self.transitions[i]
-            trn.to.fillClosure(list)
+            trn.to.fillClosure(result)
             i += 1
-        return list
+        return result
     
-    def fillEpsilonClosure(self, list = None):
-        if list is None:
-            list = []
-        if self in list:
-            return list
-        list.append(self)
+    def fillEpsilonClosure(self, result = None):
+        if result is None:
+            result = []
+        if self in result:
+            return result
+        result.append(self)
         if self.__isCompact == True:
-            return list
+            return result
         
         i = 0
         while i < len(self.transitions):
             trn = self.transitions[i]
             if trn.isEpsilon() == True:
                 if trn.to.__isCompact == True:
-                    if not (trn.to in list):
-                        list.append(trn.to)
+                    if not (trn.to in result):
+                        result.append(trn.to)
                 else:
-                    trn.to.fillEpsilonClosure(list)
+                    trn.to.fillEpsilonClosure(result)
             else:
                 break
             i += 1
-        return list
+        return result
     
     def clone(self):
         closure = self.fillClosure()
@@ -1590,14 +1602,15 @@ class FA:
                 #    return result
                 case ".":
                     dot = FA.charset([FARange(0, 0x10ffff)], accept, compact)
+
+                    pc.advance()
+
+                    dot = FA._parseModifier(dot, pc, accept, compact)
                     if result is None:
                         result = dot
                     else:
                         result = FA.concat([result, dot], accept, compact)
-    
-                    pc.advance()
-                    result = FA._parseModifier(result, pc, accept, compact)
-
+                    
                 case "\\":
                     pc.advance()
                     pc.expecting([])
@@ -1770,9 +1783,307 @@ class FA:
         if result is None:
             result = FA(accept)
         return result
+    @staticmethod
+    def acceptingFilter(state):
+        return state.acceptSymbol != -1
+    @staticmethod
+    def finalFilter(state):
+        return state.isFinal()
+    @staticmethod
+    def neutralFilter(state):
+        return state.isNeutral()
+    @staticmethod
+    def trapFilter(state):
+        return state.isTrap()
 
-#fa = FA.parse("(\\/api\\/spiffs\\/(.*))|(\\/api\\/sdcard\\/(.*))")
-#print(fa.toArray())
+    def fillFind(self, predicate, result = None):
+        if result is None:
+            result = []
+        if self in result:
+            return result
+        if predicate(self) == True:
+            result.append(self)
+        for trn in self.transitions:
+            trn.to.fillFind(predicate, result)
+        return result
+    
+    def findFirst(self, predicate):
+        if predicate(self) == True:
+            return self
+        for trn in self.transitions:
+            result = trn.to.findFirst(predicate)
+            if not (result is None):
+                return result
+        return None
+    @staticmethod
+    def __appendCodepointTo(codepoint, result):
+        ch = chr(codepoint)
+        match ch:
+            case '.'|'['|']'|'^'|'-'|'+'|'?'|'('|')'|'\\':
+                result += '\\'
+                result += ch
+                return;
+            case '\t':
+                result += "\\t"
+            case '\n':
+                result += "\\n"
+            case '\r':
+                result += "\\r"
+            case '\0':
+                result +="\\0"
+            case '\f':
+                result += "\\f"
+            case '\v':
+                result += "\\v"
+            case '\b':
+                result += "\\b"
+            case _:
+                if codepoint<32 or codepoint>127:
+                    if len(ch) == 1:
+                        result += "\\u"
+                        result += format(codepoint,'04x')
+                    else:
+                        result += "\\U"
+                        result += format(codepoint,'08x')
+                else:
+                    result += ch
+        return result
+    
+    @staticmethod
+    def __appendRangeCodepointTo(codepoint, result):
+        ch = chr(codepoint)
+        match ch:
+            case '.'|'['|']'|'^'|'-'|'('|')'|'{'|'}'|'\\':
+                result += '\\'
+                result += ch
+            case '\t':
+                result += "\\t"
+            case '\n':
+                result += "\\n"
+            case '\r':
+                result += "\\r"
+            case '\0':
+                result +="\\0"
+            case '\f':
+                result += "\\f"
+            case '\v':
+                result += "\\v"
+            case '\b':
+                result += "\\b"
+            case _:
+                if codepoint<32 or codepoint>127:
+                    if len(ch) == 1:
+                        result += "\\u"
+                        result += format(codepoint,'04x')
+                    else:
+                        result += "\\U"
+                        result += format(codepoint,'08x')
+                else:
+                    result += ch
+        return result
+
+    @staticmethod
+    def __appendRangeTo(ranges, index, result):
+        first = ranges[index].min
+        last = ranges[index].max
+        if first == 0 and last == 1114111:
+            return result + '.'
+        result = FA.__appendRangeCodepointTo(first, result)
+        if last == first:
+            return result
+        
+        if last == first + 1: # spit out 1 and 2 length ranges as flat chars
+            result = FA.__appendRangeCodepointTo(last, result)
+            return result
+        elif last == first + 2:
+            result = FA.__appendRangeCodepointTo(first+1, result)
+            result = FA.__appendRangeCodepointTo(last, result)
+            return result
+        result +='-'
+        result = FA.__appendRangeCodepointTo(last, result)
+        return result
+
+    @staticmethod
+    def __appendRangesTo(ranges, result):
+        i = 0
+        while i < len(ranges):
+            result = FA.__appendRangeTo(ranges,i,result)
+            i+= 1
+        return result
+        
+    @staticmethod
+    def __toExprFillEdgesIn(edges, fa, result):
+        for edge in edges:
+            if edge.toState is fa:
+                result.append(edge)
+    @staticmethod
+    def __toExprFillEdgesOut(edges, fa, result):
+        for edge in edges:
+            if edge.fromState is fa:
+                result.append(edge)
+    @staticmethod
+    def __toExpressionFillEdgesOrphanState(edges, fa, result):
+        for edge in edges:
+            if ((edge.fromState is fa) or (edge.toState is fa)):
+                continue
+            result.append(edge)
+    @staticmethod
+    def __toExpressionOrJoin(strings):
+        if len(strings) == 0:
+            return ""
+        if len(strings) == 1:
+            return strings[0]    
+        return f"({"|".join(strings)})"
+    
+    @staticmethod
+    def __toExpressionKleeneStar(s, noWrap,result):
+        if s is None or len(s) == 0:
+            return result
+        if noWrap == True or len(s) == 1:
+            result += f"{s}*"
+            return result
+        result += f"({s})*"
+        return result
+    
+    @staticmethod
+    def __toExpression(fa):
+        closure = []
+        fsmEdges = []
+        first = fa
+        final = None
+        # linearize the state machine
+        acc = []
+        for f in first.fillClosure():
+            if f.acceptSymbol != -1:
+                acc.append(f)
+        if len(acc) == 1:
+            final = acc[0]
+        elif len(acc) > 1:
+            fa = fa.clone()
+            first = fa
+            acc.clear()
+            for f in fa.fillClosure():
+                if f.acceptSymbol != -1:
+                    acc.append(f)
+
+            final = FA(acc[0].acceptSymbol)
+            for a in acc:
+                a.addEpsilon(final, False)
+                a.acceptSymbol = -1
+        first.fillClosure(closure)
+        sb = [] # string builder
+        # build the machine from the FA
+        trnsgrp = dict()
+        for cfa in closure:
+            trnsgrp.clear()
+            for trns in cfa.fillInputTransitionRangesGroupedByState(True,trnsgrp).items():
+                sb = ""
+                if len(trns[1]) == 1 and trns[1][0].min == trns[1][0].max:
+                    rng = trns[1][0]
+                    if rng.min == -1 or rng.max == -1:
+                        eedge = _ExpEdge()
+                        eedge.exp = ""
+                        eedge.fromState = cfa
+                        eedge.toState = trns[0]
+                        fsmEdges.append(eedge)
+                        continue
+                    sb = FA.__appendCodepointTo(rng.min, sb)
+                else:
+                    sb += "["
+                    sb = FA.__appendRangesTo(trns[1], sb)
+                    sb += "]"
+                
+                edge = _ExpEdge()
+                edge.exp = sb
+                edge.fromState = cfa
+                edge.toState = trns[0]
+                fsmEdges.append(edge)
+        tmp = FA()
+        tmp.addEpsilon(first, False)
+        q0 = first
+        first = tmp
+        tmp = FA(final.acceptSymbol)
+        qLast = final
+        final.acceptSymbol = -1
+        final.addEpsilon(tmp, False)
+        final = tmp
+        # add first and final
+        newEdge = _ExpEdge()
+        newEdge.exp = ""
+        newEdge.fromState = first
+        newEdge.toState = q0
+        fsmEdges.append(newEdge)
+        newEdge = _ExpEdge()
+        newEdge.exp = ""
+        newEdge.fromState = qLast
+        newEdge.toState = final
+        fsmEdges.append(newEdge)
+        closure[0].setIds()
+        closure.insert(0, first)
+        closure.append(final)
+        inEdges = []
+        outEdges = []
+        while len(closure) > 2:
+            node = closure[1]
+            loops = []
+            inEdges.clear()
+            FA.__toExprFillEdgesIn(fsmEdges, node, inEdges)
+            for edge in inEdges:
+                if edge.fromState is edge.toState:
+                    loops.append(edge.exp)
+            sb = ""
+            sb = FA.__toExpressionKleeneStar(FA.__toExpressionOrJoin( loops),len(loops) > 1, sb)
+            middle = sb
+            for inEdge in inEdges:
+                if inEdge.fromState is inEdge.toState:
+                    continue
+                outEdges.clear()
+                FA.__toExprFillEdgesOut(fsmEdges, node, outEdges)
+                for outEdge in outEdges:
+                    if outEdge.fromState is outEdge.toState:
+                        continue
+                    expEdge = _ExpEdge()
+                    expEdge.fromState = inEdge.fromState
+                    expEdge.toState = outEdge.toState
+                    sb = ""
+                    sb += inEdge.exp
+                    sb += middle
+                    sb += outEdge.exp
+                    expEdge.exp = sb
+                    fsmEdges.append(expEdge)   
+            # reuse inedges since we're not using it
+            inEdges.clear()
+            FA.__toExpressionFillEdgesOrphanState(fsmEdges, node,inEdges)
+            fsmEdges.clear()
+            for edge in inEdges:
+                fsmEdges.append(edge)
+            closure.remove(node)
+        sb = ""
+        if len(fsmEdges) == 1:
+            return fsmEdges[0].exp
+        
+        if len(fsmEdges) > 1:
+            sb+="("
+            sb+=fsmEdges[0].exp
+            i = 1
+            while i < len(fsmEdges):
+                sb += "|"
+                edge = fsmEdges[i]
+                sb += edge.exp
+                i += 1
+            sb += ")"
+        
+        return sb
+    def toString(self, format = ""):
+        if (format is None) or len(format) == 0:
+            return str(self)
+        if format == "e":
+            return FA.__toExpression(self)
+        raise Exception("Invalid format specifier")
+
+#fa = FA.parse("foo\\/(.*)",0)
+#fa = FA.parse("(\\/api\\/spiffs\\/.*)|(\\/api\\/sdcard\\/.*)",0,True)
+#print(fa.toString("e"))
 # compact = False
 # firstPart = FA.charset([FARange(ord("A"),ord("Z")),FARange(ord("a"),ord("z")),FARange(ord("_"),ord("_"))],0,compact)
 # nextPart = FA.charset([FARange(ord("A"),ord("Z")),FARange(ord("a"),ord("z")),FARange(ord("_"),ord("_")),FARange(ord("0"),ord("9"))],0,compact)
