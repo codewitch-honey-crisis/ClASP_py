@@ -2339,7 +2339,8 @@ class FA:
                                 acc = options.acceptSymbolNames[i]
                             if acc is None:
                                 acc = str(i)
-                            writer.append(f"<TR><TD>{acc.replace("\"", "&quot;")}</TD></TR>")
+                            acc2 = acc.replace("\"", "&quot;")
+                            writer.append(f"<TR><TD>{acc2}</TD></TR>")
                             
                         writer.append("</TABLE>>")
                         if cbfa.acceptSymbol != -1:
@@ -2397,7 +2398,8 @@ class FA:
                     acc = options.acceptSymbolNames[ffa.acceptSymbol]
                 if acc is None:
                     acc = str(ffa.acceptSymbol)    
-                writer.append(f"<TR><TD>{acc.replace("\"", "&quot;")}</TD></TR>")
+                acc2 = acc.replace("\"", "&quot;")
+                writer.append(f"<TR><TD>{acc2}</TD></TR>")
             
             writer.append("</TABLE>>")
             isfinal = False
