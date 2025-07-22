@@ -1,0 +1,38 @@
+digraph FA {
+rankdir=LR
+node [shape=circle]
+subgraph cluster_2 {
+rankdir=LR
+node [shape=circle]
+c2q0->c2q1 [label="<"]c2q1->c2q2 [label="!"]c2q2->c2q3 [label="[\\-]"]c2q3->c2q4 [label="[\\-]"]c2q0 [label=<<TABLE BORDER="0"><TR><TD>q<SUB>0</SUB></TD></TR><TR><TD>{ q<SUB>0</SUB> }</TD></TR></TABLE>>]
+c2q1 [label=<<TABLE BORDER="0"><TR><TD>q<SUB>1</SUB></TD></TR><TR><TD>{ q<SUB>1</SUB> q<SUB>2</SUB> }</TD></TR></TABLE>>]
+c2q2 [label=<<TABLE BORDER="0"><TR><TD>q<SUB>2</SUB></TD></TR><TR><TD>{ q<SUB>3</SUB> q<SUB>4</SUB> }</TD></TR></TABLE>>]
+c2q3 [label=<<TABLE BORDER="0"><TR><TD>q<SUB>3</SUB></TD></TR><TR><TD>{ q<SUB>5</SUB> q<SUB>6</SUB> }</TD></TR></TABLE>>]
+c2q4 [label=<<TABLE BORDER="0"><TR><TD>q<SUB>4</SUB></TD></TR><TR><TD>{ q<SUB>7</SUB> }</TD></TR></TABLE>>,shape=doublecircle]
+c2q4 [shape=doublecircle]
+}
+subgraph cluster_1 {
+rankdir=LR
+node [shape=circle]
+c1q0->c1q1 [label="<"]c1q1->c1q2 [style=dashed,color=gray]
+c1q2->c1q3 [label="!"]c1q3->c1q4 [style=dashed,color=gray]
+c1q4->c1q5 [label="[\\-]"]c1q5->c1q6 [style=dashed,color=gray]
+c1q6->c1q7 [label="[\\-]"]c1q7->c1blockEnd0q0 [style=dashed,label=".*?"]
+c1blockEnd0q0->c1blockEnd0q1 [label="[\\-\\-]"]
+c1blockEnd0q1->c1blockEnd0q2 [label="[\\-\\-\\-]"]
+c1blockEnd0q2->c1blockEnd0q3 [label="[\\-\\-\\->]"]
+c1blockEnd0q0 [label=<<TABLE BORDER="0"><TR><TD>(be)q<SUB>0</SUB></TD></TR></TABLE>>]
+c1blockEnd0q1 [label=<<TABLE BORDER="0"><TR><TD>(be)q<SUB>1</SUB></TD></TR></TABLE>>]
+c1blockEnd0q2 [label=<<TABLE BORDER="0"><TR><TD>(be)q<SUB>2</SUB></TD></TR></TABLE>>]
+c1blockEnd0q3 [label=<<TABLE BORDER="0"><TR><TD>(be)q<SUB>3</SUB></TD></TR></TABLE>>,shape=doublecircle]
+c1q0 [label=<<TABLE BORDER="0"><TR><TD>q<SUB>0</SUB></TD></TR></TABLE>>]
+c1q1 [label=<<TABLE BORDER="0"><TR><TD>q<SUB>1</SUB></TD></TR></TABLE>>,color=gray]
+c1q2 [label=<<TABLE BORDER="0"><TR><TD>q<SUB>2</SUB></TD></TR></TABLE>>]
+c1q3 [label=<<TABLE BORDER="0"><TR><TD>q<SUB>3</SUB></TD></TR></TABLE>>,color=gray]
+c1q4 [label=<<TABLE BORDER="0"><TR><TD>q<SUB>4</SUB></TD></TR></TABLE>>]
+c1q5 [label=<<TABLE BORDER="0"><TR><TD>q<SUB>5</SUB></TD></TR></TABLE>>,color=gray]
+c1q6 [label=<<TABLE BORDER="0"><TR><TD>q<SUB>6</SUB></TD></TR></TABLE>>]
+c1q7 [label=<<TABLE BORDER="0"><TR><TD>q<SUB>7</SUB></TD></TR></TABLE>>]
+c1q1,c1q3,c1q5 [color=gray]
+}
+}

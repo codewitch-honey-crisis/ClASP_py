@@ -1888,12 +1888,13 @@ class FA:
         return None
     @staticmethod
     def __appendCodepointTo(codepoint, result):
+        if codepoint == -1:
+            return result
         ch = chr(codepoint)
         match ch:
             case '.'|'['|']'|'^'|'-'|'+'|'?'|'('|')'|'\\':
                 result += '\\'
                 result += ch
-                return;
             case '\t':
                 result += "\\t"
             case '\n':
@@ -1922,6 +1923,8 @@ class FA:
     
     @staticmethod
     def __appendRangeCodepointTo(codepoint, result):
+        if codepoint == -1:
+            return result
         ch = chr(codepoint)
         match ch:
             case '.'|'['|']'|'^'|'-'|'('|')'|'{'|'}'|'\\':
@@ -2273,7 +2276,7 @@ class FA:
                 else:
                     writer.append(FA.__escapeLabel(sb))
                 if istrns == False:
-                    writer.append("\"]")
+                    writer.append("\"]\n")
                 else:
                     writer.append("\",color=green]\n")
                 
@@ -2309,10 +2312,11 @@ class FA:
                     qi = 0
                     while qi < len(bclose):
                         cbfa = bclose[qi]
-                        rngGrps = cbfa.fillInputTransitionRangesGroupedByState(True)
+                        rngGrps = cbfa.fillInputTransitionRangesGroupedByState()
                         for rngGrp in rngGrps.items():
                             di = bclose.index(rngGrp[0])
                             writer.append(f"{pfx}blockEnd{i}{spfx}{qi}->{pfx}blockEnd{i}{spfx}{di} [label=\"")
+                            sb =""
                             sb = FA.__appendRangesTo(rngGrp[1],sb)
                             if len(sb) != 1 or sb == " ":
                                 middle = ""
@@ -2404,7 +2408,7 @@ class FA:
             writer.append("</TABLE>>")
             isfinal = False
 
-            if (ffa in accepting) and ((hasBlockEnds == False or len(bel) <= ffa.acceptSymbol or (options.blockEnds[ffa.acceptSymbol] is None))):
+            if (ffa in accepting) and ((hasBlockEnds == False or bel <= ffa.acceptSymbol or (options.blockEnds[ffa.acceptSymbol] is None))):
                 writer.append(",shape=doublecircle")
             elif isfinal == True or ffa in neutrals:
                 if ((fromStates is None) or not (ffa in fromStates)) and ((toStates is None) or not (ffa in toStates)):
@@ -2483,15 +2487,22 @@ class FA:
             print("dot not found")
 
 
-#nfa = FA.parse("foo\\/(.*)",0)
-nfa = FA.parse("[A-Z_a-z][0-9A-Z_a-z]*",0,False)
-opts = FADotGraphOptions()
-opts.hideAcceptSymbolIds = True
-opts.debugShowNfa = True
-opts.debugSourceNfa = nfa
-opts.dpi = 300
-opts.vertical = False
-nfa.toDfa().renderToFile("test.jpg",opts)
+# nfa = FA.parse("<!\\-\\-",0,False)
+# be = FA.parse("\\-\\->",0,False)
+# print(be.toMinimizedDfa().toString("e"))
+# opts = FADotGraphOptions()
+# opts.hideAcceptSymbolIds = True
+# opts.debugShowNfa = True
+# opts.debugSourceNfa = nfa
+# opts.blockEnds = [be.toMinimizedDfa()]
+# opts.dpi = 300
+# opts.vertical = False
+# dfa = nfa.toDfa()
+# opts.debugShowNfa = False
+# opts.debugSourceNfa = None
+# mdfa = dfa.toMinimizedDfa()
+# mdfa.renderToFile("mdfa.jpg",opts)
+# mdfa.renderToFile("mdfa.dot",opts)
 
 # compact = False
 # firstPart = FA.charset([FARange(ord("A"),ord("Z")),FARange(ord("a"),ord("z")),FARange(ord("_"),ord("_"))],0,compact)
