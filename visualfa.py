@@ -2476,19 +2476,22 @@ class FA:
             cmd.append(f"-Gdpi={options.dpi}")
         self.__writeDot(dotwriter, options)
         cmd.append(f"-o{path}")
-        p = Popen(cmd, stdout=None, stdin=PIPE, stderr=None, text=True)
-        p.communicate(input="".join(dotwriter))[0]
+        try:
+            p = Popen(cmd, stdout=None, stdin=PIPE, stderr=None, text=True)
+            p.communicate(input="".join(dotwriter))[0]
+        except:
+            print("dot not found")
 
-        
-#fa = FA.parse("foo\\/(.*)",0)
-# nfa = FA.parse("[A-Z_a-z][0-9A-Z_a-z]*",0,False)
-# opts = FADotGraphOptions()
-# opts.hideAcceptSymbolIds = True
-# opts.debugShowNfa = True
-# opts.debugSourceNfa = nfa
-# opts.dpi = 300
-# opts.vertical = False
-# nfa.toDfa().renderToFile("test.jpg",opts)
+
+#nfa = FA.parse("foo\\/(.*)",0)
+nfa = FA.parse("[A-Z_a-z][0-9A-Z_a-z]*",0,False)
+opts = FADotGraphOptions()
+opts.hideAcceptSymbolIds = True
+opts.debugShowNfa = True
+opts.debugSourceNfa = nfa
+opts.dpi = 300
+opts.vertical = False
+nfa.toDfa().renderToFile("test.jpg",opts)
 
 # compact = False
 # firstPart = FA.charset([FARange(ord("A"),ord("Z")),FARange(ord("a"),ord("z")),FARange(ord("_"),ord("_"))],0,compact)
